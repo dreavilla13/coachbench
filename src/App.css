@@ -379,3 +379,38 @@ input {
   background: #1e293b;
   margin: 14px 0;
 }
+
+.timer-card {
+  background: #0f172a;
+  border-radius: 18px;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.timer-label {
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.timer-display {
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.timer-done {
+  color: #facc15;
+}
+
+.timer-controls {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.guest-row {
+  margin-top: 8px;
+}

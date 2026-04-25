@@ -7,7 +7,7 @@ const baseFormations = {
   "11v11": [["ST"], ["LW", "CAM", "RW"], ["CDM", "CM"], ["LB", "LCB", "RCB", "RB"], ["GK"]],
 };
 
-const storageKey = "soccer-coach-app-v6";
+const storageKey = "soccer-coach-app-v7";
 
 function newId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -19,10 +19,11 @@ function formatTime(seconds) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-function makePlayer(name) {
+function makePlayer(name, isGuest = false) {
   return {
     id: newId(),
     name,
+    isGuest,
     onField: false,
     position: "Bench",
     fieldTime: 0,
@@ -39,6 +40,7 @@ export default function App() {
   const [format, setFormat] = useState("9v9");
   const [players, setPlayers] = useState([]);
   const [newPlayer, setNewPlayer] = useState("");
+  const [newGuestPlayer, setNewGuestPlayer] = useState("");
   const [running, setRunning] = useState(false);
   const [teamGoals, setTeamGoals] = useState(0);
   const [oppGoals, setOppGoals] = useState(0);
@@ -49,6 +51,9 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [goalPanelOpen, setGoalPanelOpen] = useState(false);
   const [fieldFlipped, setFieldFlipped] = useState(false);
+  const [halfLengthMinutes, setHalfLengthMinutes] = useState(30);
+  const [currentHalf, setCurrentHalf] = useState(1);
+  const [halfSecondsLeft, setHalfSecondsLeft] = useState(30 * 60);
 
   const formationRows = fieldFlipped ? [...baseFormations[format]].reverse() : baseFormations[format];
   const positions = baseFormations[format].flat();
@@ -63,12 +68,15 @@ export default function App() {
       setOppGoals(data.oppGoals || 0);
       setGames(data.games || []);
       setFieldFlipped(data.fieldFlipped || false);
+      setHalfLengthMinutes(data.halfLengthMinutes || 30);
+      setCurrentHalf(data.currentHalf || 1);
+      setHalfSecondsLeft(data.halfSecondsLeft ?? (data.halfLengthMinutes || 30) * 60);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({ format, players, teamGoals, oppGoals, games, fieldFlipped }));
-  }, [format, players, teamGoals, oppGoals, games, fieldFlipped]);
+    localStorage.setItem(storageKey, JSON.stringify({ format, players, teamGoals, oppGoals, games, fieldFlipped, halfLengthMinutes, currentHalf, halfSecondsLeft }));
+  }, [format, players, teamGoals, oppGoals, games, fieldFlipped, halfLengthMinutes, currentHalf, halfSecondsLeft]);
 
   useEffect(() => {
     if (!running) return;
@@ -80,6 +88,7 @@ export default function App() {
           benchTime: player.onField ? 0 : player.benchTime + 1,
         }))
       );
+      setHalfSecondsLeft((current) => Math.max(0, current - 1));
     }, 1000);
     return () => clearInterval(interval);
   }, [running]);
@@ -90,8 +99,30 @@ export default function App() {
 
   function addPlayer() {
     if (!newPlayer.trim()) return;
-    setPlayers([...players, makePlayer(newPlayer.trim())]);
+    setPlayers([...players, makePlayer(newPlayer.trim(), false)]);
     setNewPlayer("");
+  }
+
+  function addGuestPlayer() {
+    if (!newGuestPlayer.trim()) return;
+    setPlayers([...players, makePlayer(newGuestPlayer.trim(), true)]);
+    setNewGuestPlayer("");
+  }
+
+  function resetHalfTimer() {
+    setHalfSecondsLeft(halfLengthMinutes * 60);
+  }
+
+  function updateHalfLength(minutes) {
+    const value = Number(minutes);
+    setHalfLengthMinutes(value);
+    setHalfSecondsLeft(value * 60);
+  }
+
+  function nextHalf() {
+    setCurrentHalf((half) => half + 1);
+    setHalfSecondsLeft(halfLengthMinutes * 60);
+    setRunning(false);
   }
 
   function deletePlayer(id) {
@@ -154,32 +185,40 @@ export default function App() {
     };
     setGames([finishedGame, ...games]);
     setPlayers((currentPlayers) =>
-      currentPlayers.map((player) => ({
-        ...player,
-        seasonGoals: player.seasonGoals + player.goals,
-        seasonAssists: player.seasonAssists + player.assists,
-        seasonMinutes: player.seasonMinutes + Math.round(player.fieldTime / 60),
-        goals: 0,
-        assists: 0,
-        fieldTime: 0,
-        benchTime: 0,
-        onField: false,
-        position: "Bench",
-      }))
+      currentPlayers
+        .filter((player) => !player.isGuest)
+        .map((player) => ({
+          ...player,
+          seasonGoals: player.seasonGoals + player.goals,
+          seasonAssists: player.seasonAssists + player.assists,
+          seasonMinutes: player.seasonMinutes + Math.round(player.fieldTime / 60),
+          goals: 0,
+          assists: 0,
+          fieldTime: 0,
+          benchTime: 0,
+          onField: false,
+          position: "Bench",
+        }))
     );
     setTeamGoals(0);
     setOppGoals(0);
     setRunning(false);
+    setCurrentHalf(1);
+    setHalfSecondsLeft(halfLengthMinutes * 60);
     setScreen("formation");
   }
 
   function resetCurrentGame() {
     setPlayers((currentPlayers) =>
-      currentPlayers.map((player) => ({ ...player, goals: 0, assists: 0, fieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
+      currentPlayers
+        .filter((player) => !player.isGuest)
+        .map((player) => ({ ...player, goals: 0, assists: 0, fieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
     );
     setTeamGoals(0);
     setOppGoals(0);
     setRunning(false);
+    setCurrentHalf(1);
+    setHalfSecondsLeft(halfLengthMinutes * 60);
   }
 
   function clearEverything() {
@@ -207,6 +246,25 @@ export default function App() {
               <div className="score">{teamGoals} - {oppGoals}</div>
             </div>
             <button onClick={() => setRunning(!running)} className={running ? "pause-button" : "start-button"}>{running ? "PAUSE" : "START"}</button>
+          </div>
+
+          <div className="timer-card">
+            <div>
+              <div className="timer-label">Half {currentHalf} Timer</div>
+              <div className={halfSecondsLeft === 0 ? "timer-display timer-done" : "timer-display"}>{formatTime(halfSecondsLeft)}</div>
+            </div>
+            <div className="timer-controls">
+              <select value={halfLengthMinutes} onChange={(e) => updateHalfLength(e.target.value)}>
+                <option value="20">20 min</option>
+                <option value="25">25 min</option>
+                <option value="30">30 min</option>
+                <option value="35">35 min</option>
+                <option value="40">40 min</option>
+                <option value="45">45 min</option>
+              </select>
+              <button onClick={resetHalfTimer} className="dark-button">Reset</button>
+              <button onClick={nextHalf} className="dark-button">Next Half</button>
+            </div>
           </div>
 
           <div className="quick-actions">
@@ -288,15 +346,19 @@ export default function App() {
               <div className="card">
                 <h2>Roster</h2>
                 <div className="add-row">
-                  <input value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} placeholder="Player name" />
+                  <input value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} placeholder="Permanent roster player" />
                   <button onClick={addPlayer} className="blue-button">Add</button>
+                </div>
+                <div className="add-row guest-row">
+                  <input value={newGuestPlayer} onChange={(e) => setNewGuestPlayer(e.target.value)} placeholder="Guest for this game only" />
+                  <button onClick={addGuestPlayer} className="green-dark-button">Guest</button>
                 </div>
               </div>
               {players.map((player) => (
                 <div key={player.id} className="list-row">
                   <div>
                     <div className="row-title">{player.name}</div>
-                    <div className="row-subtitle">{player.onField ? player.position : "Bench"}</div>
+                    <div className="row-subtitle">{player.isGuest ? "Guest player • " : ""}{player.onField ? player.position : "Bench"}</div>
                   </div>
                   <button onClick={() => deletePlayer(player.id)} className="delete-button">Delete</button>
                 </div>
@@ -327,7 +389,7 @@ export default function App() {
             <div className="section-stack">
               <div className="screen-heading"><h2>Stats</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
               <div className="card"><h3>Current Game</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.goals}G / {p.assists}A / {formatTime(p.fieldTime)}</span></div>)}</div>
-              <div className="card"><h3>Season Totals</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.seasonGoals}G / {p.seasonAssists}A / {p.seasonMinutes}m</span></div>)}</div>
+              <div className="card"><h3>Season Totals</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.isGuest ? "Guest" : `${p.seasonGoals}G / ${p.seasonAssists}A / ${p.seasonMinutes}m`}</span></div>)}</div>
               <div className="card"><h3>Saved Games</h3>{games.length === 0 && <p className="muted">No saved games yet.</p>}{games.map((game) => <div key={game.id} className="saved-game"><strong>{game.date} | {game.format} | {game.score}</strong><p>{game.players.filter((p) => p.goals || p.assists).map((p) => `${p.name}: ${p.goals}G/${p.assists}A`).join(" • ") || "No player goals recorded"}</p></div>)}</div>
             </div>
           )}
