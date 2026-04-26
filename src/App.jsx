@@ -8,6 +8,12 @@ const baseFormations = {
 };
 
 const storageKey = "soccer-coach-app-v8";
+const legacyStorageKeys = [
+  "soccer-coach-app-v7",
+  "soccer-coach-app-v6",
+  "soccer-coach-app-v5",
+  "soccer-coach-app-v4",
+];
 
 function newId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -60,7 +66,19 @@ export default function App() {
   const positions = baseFormations[format].flat();
 
   useEffect(() => {
-    const saved = localStorage.getItem(storageKey);
+    let saved = localStorage.getItem(storageKey);
+
+    if (!saved) {
+      for (const oldKey of legacyStorageKeys) {
+        const oldSaved = localStorage.getItem(oldKey);
+        if (oldSaved) {
+          saved = oldSaved;
+          localStorage.setItem(storageKey, oldSaved);
+          break;
+        }
+      }
+    }
+
     if (saved) {
       const data = JSON.parse(saved);
       setFormat(data.format || "9v9");
