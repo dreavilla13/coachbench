@@ -7,7 +7,7 @@ const baseFormations = {
   "11v11": [["ST"], ["LW", "CAM", "RW"], ["CDM", "CM"], ["LB", "LCB", "RCB", "RB"], ["GK"]],
 };
 
-const storageKey = "soccer-coach-app-v7";
+const storageKey = "soccer-coach-app-v8";
 
 function newId() {
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -27,6 +27,7 @@ function makePlayer(name, isGuest = false) {
     onField: false,
     position: "Bench",
     fieldTime: 0,
+    currentFieldTime: 0,
     benchTime: 0,
     goals: 0,
     assists: 0,
@@ -75,7 +76,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify({ format, players, teamGoals, oppGoals, games, fieldFlipped, halfLengthMinutes, currentHalf, halfSecondsLeft }));
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ format, players, teamGoals, oppGoals, games, fieldFlipped, halfLengthMinutes, currentHalf, halfSecondsLeft })
+    );
   }, [format, players, teamGoals, oppGoals, games, fieldFlipped, halfLengthMinutes, currentHalf, halfSecondsLeft]);
 
   useEffect(() => {
@@ -85,6 +89,7 @@ export default function App() {
         currentPlayers.map((player) => ({
           ...player,
           fieldTime: player.onField ? player.fieldTime + 1 : player.fieldTime,
+          currentFieldTime: player.onField ? (player.currentFieldTime || 0) + 1 : 0,
           benchTime: player.onField ? 0 : player.benchTime + 1,
         }))
       );
@@ -96,6 +101,10 @@ export default function App() {
   const onField = useMemo(() => players.filter((p) => p.onField), [players]);
   const bench = useMemo(() => players.filter((p) => !p.onField), [players]);
   const urgentBench = bench.filter((p) => p.benchTime > 300).length;
+  const longestShift = useMemo(
+    () => [...onField].sort((a, b) => (b.currentFieldTime || 0) - (a.currentFieldTime || 0))[0],
+    [onField]
+  );
 
   function addPlayer() {
     if (!newPlayer.trim()) return;
@@ -109,22 +118,6 @@ export default function App() {
     setNewGuestPlayer("");
   }
 
-  function resetHalfTimer() {
-    setHalfSecondsLeft(halfLengthMinutes * 60);
-  }
-
-  function updateHalfLength(minutes) {
-    const value = Number(minutes);
-    setHalfLengthMinutes(value);
-    setHalfSecondsLeft(value * 60);
-  }
-
-  function nextHalf() {
-    setCurrentHalf((half) => half + 1);
-    setHalfSecondsLeft(halfLengthMinutes * 60);
-    setRunning(false);
-  }
-
   function deletePlayer(id) {
     setPlayers(players.filter((p) => p.id !== id));
   }
@@ -133,8 +126,8 @@ export default function App() {
     if (!playerId) return;
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) => {
-        if (player.id === playerId) return { ...player, onField: true, position, benchTime: 0 };
-        if (player.position === position) return { ...player, onField: false, position: "Bench", benchTime: 0 };
+        if (player.id === playerId) return { ...player, onField: true, position, benchTime: 0, currentFieldTime: 0 };
+        if (player.position === position) return { ...player, onField: false, position: "Bench", benchTime: 0, currentFieldTime: 0 };
         return player;
       })
     );
@@ -143,7 +136,7 @@ export default function App() {
   function sendToBench(playerId) {
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) =>
-        player.id === playerId ? { ...player, onField: false, position: "Bench", benchTime: 0 } : player
+        player.id === playerId ? { ...player, onField: false, position: "Bench", benchTime: 0, currentFieldTime: 0 } : player
       )
     );
   }
@@ -153,8 +146,8 @@ export default function App() {
     if (!fieldPlayer) return;
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) => {
-        if (player.id === benchPlayerId) return { ...player, onField: true, position: fieldPlayer.position, benchTime: 0 };
-        if (player.id === fieldPlayerId) return { ...player, onField: false, position: "Bench", benchTime: 0 };
+        if (player.id === benchPlayerId) return { ...player, onField: true, position: fieldPlayer.position, benchTime: 0, currentFieldTime: 0 };
+        if (player.id === fieldPlayerId) return { ...player, onField: false, position: "Bench", benchTime: 0, currentFieldTime: 0 };
         return player;
       })
     );
@@ -175,14 +168,38 @@ export default function App() {
     setGoalPanelOpen(false);
   }
 
+  function resetHalfTimer() {
+    setHalfSecondsLeft(halfLengthMinutes * 60);
+  }
+
+  function updateHalfLength(minutes) {
+    const value = Number(minutes);
+    setHalfLengthMinutes(value);
+    setHalfSecondsLeft(value * 60);
+  }
+
+  function nextHalf() {
+    setCurrentHalf((half) => half + 1);
+    setHalfSecondsLeft(halfLengthMinutes * 60);
+    setRunning(false);
+  }
+
   function saveGameToSeason() {
     const finishedGame = {
       id: newId(),
       date: new Date().toLocaleDateString(),
       score: `${teamGoals}-${oppGoals}`,
       format,
-      players: players.map((p) => ({ name: p.name, goals: p.goals, assists: p.assists, minutes: Math.round(p.fieldTime / 60) })),
+      players: players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        isGuest: p.isGuest,
+        goals: p.goals,
+        assists: p.assists,
+        minutes: Math.round(p.fieldTime / 60),
+      })),
     };
+
     setGames([finishedGame, ...games]);
     setPlayers((currentPlayers) =>
       currentPlayers
@@ -195,6 +212,7 @@ export default function App() {
           goals: 0,
           assists: 0,
           fieldTime: 0,
+          currentFieldTime: 0,
           benchTime: 0,
           onField: false,
           position: "Bench",
@@ -212,13 +230,35 @@ export default function App() {
     setPlayers((currentPlayers) =>
       currentPlayers
         .filter((player) => !player.isGuest)
-        .map((player) => ({ ...player, goals: 0, assists: 0, fieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
+        .map((player) => ({ ...player, goals: 0, assists: 0, fieldTime: 0, currentFieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
     );
     setTeamGoals(0);
     setOppGoals(0);
     setRunning(false);
     setCurrentHalf(1);
     setHalfSecondsLeft(halfLengthMinutes * 60);
+  }
+
+  function deleteSavedGame(gameId) {
+    const gameToDelete = games.find((game) => game.id === gameId);
+    if (!gameToDelete) return;
+
+    setGames(games.filter((game) => game.id !== gameId));
+
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player) => {
+        const deletedStats = gameToDelete.players.find(
+          (gamePlayer) => gamePlayer.id === player.id || gamePlayer.name === player.name
+        );
+        if (!deletedStats || player.isGuest) return player;
+        return {
+          ...player,
+          seasonGoals: Math.max(0, player.seasonGoals - (deletedStats.goals || 0)),
+          seasonAssists: Math.max(0, player.seasonAssists - (deletedStats.assists || 0)),
+          seasonMinutes: Math.max(0, player.seasonMinutes - (deletedStats.minutes || 0)),
+        };
+      })
+    );
   }
 
   function clearEverything() {
@@ -308,6 +348,12 @@ export default function App() {
                 <span className="count-pill">{onField.length}/{positions.length}</span>
               </div>
 
+              {longestShift && (
+                <div className="sub-reminder">
+                  Longest shift: <strong>{longestShift.name}</strong> • {formatTime(longestShift.currentFieldTime || 0)}
+                </div>
+              )}
+
               <div className="field-card">
                 <div className="field-line" />
                 <div className="formation-grid">
@@ -320,7 +366,7 @@ export default function App() {
                             <div className="position-top">
                               <span className="position-name">{position}</span>
                               <button onClick={() => assigned && sendToBench(assigned.id)} className="time-chip">
-                                {assigned ? formatTime(assigned.fieldTime) : "Open"}
+                                {assigned ? formatTime(assigned.currentFieldTime || 0) : "Open"}
                               </button>
                             </div>
                             <select value={assigned?.id || ""} onChange={(e) => assignPlayer(e.target.value, position)} className="player-select">
@@ -378,7 +424,7 @@ export default function App() {
                   </div>
                   <select defaultValue="" onChange={(e) => { if (e.target.value) subPlayers(benchPlayer.id, e.target.value); e.target.value = ""; }}>
                     <option value="">Sub in for...</option>
-                    {onField.map((fieldPlayer) => <option key={fieldPlayer.id} value={fieldPlayer.id}>{fieldPlayer.name} - {fieldPlayer.position}</option>)}
+                    {onField.map((fieldPlayer) => <option key={fieldPlayer.id} value={fieldPlayer.id}>{fieldPlayer.name} - {fieldPlayer.position} - shift {formatTime(fieldPlayer.currentFieldTime || 0)}</option>)}
                   </select>
                 </div>
               ))}
@@ -388,9 +434,17 @@ export default function App() {
           {screen === "stats" && (
             <div className="section-stack">
               <div className="screen-heading"><h2>Stats</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
-              <div className="card"><h3>Current Game</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.goals}G / {p.assists}A / {formatTime(p.fieldTime)}</span></div>)}</div>
+              <div className="card"><h3>Current Game</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.goals}G / {p.assists}A / Total {formatTime(p.fieldTime)} / Shift {formatTime(p.currentFieldTime || 0)}</span></div>)}</div>
               <div className="card"><h3>Season Totals</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.isGuest ? "Guest" : `${p.seasonGoals}G / ${p.seasonAssists}A / ${p.seasonMinutes}m`}</span></div>)}</div>
-              <div className="card"><h3>Saved Games</h3>{games.length === 0 && <p className="muted">No saved games yet.</p>}{games.map((game) => <div key={game.id} className="saved-game"><strong>{game.date} | {game.format} | {game.score}</strong><p>{game.players.filter((p) => p.goals || p.assists).map((p) => `${p.name}: ${p.goals}G/${p.assists}A`).join(" • ") || "No player goals recorded"}</p></div>)}</div>
+              <div className="card"><h3>Saved Games</h3>{games.length === 0 && <p className="muted">No saved games yet.</p>}{games.map((game) => (
+                <div key={game.id} className="saved-game">
+                  <div className="saved-game-header">
+                    <strong>{game.date} | {game.format} | {game.score}</strong>
+                    <button onClick={() => deleteSavedGame(game.id)} className="delete-game-button">Delete</button>
+                  </div>
+                  <p>{game.players.filter((p) => p.goals || p.assists).map((p) => `${p.name}: ${p.goals}G/${p.assists}A`).join(" • ") || "No player goals recorded"}</p>
+                </div>
+              ))}</div>
             </div>
           )}
         </section>

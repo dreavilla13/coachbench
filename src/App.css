@@ -414,3 +414,28 @@ input {
 .guest-row {
   margin-top: 8px;
 }
+
+.sub-reminder {
+  background: #facc15;
+  color: #020617;
+  border-radius: 14px;
+  padding: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.saved-game-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.delete-game-button {
+  border: none;
+  border-radius: 10px;
+  background: #b91c1c;
+  color: white;
+  padding: 6px 10px;
+  font-weight: 800;
+}
