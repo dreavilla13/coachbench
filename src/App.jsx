@@ -7,8 +7,9 @@ const baseFormations = {
   "11v11": [["ST"], ["LW", "CAM", "RW"], ["CDM", "CM"], ["LB", "LCB", "RCB", "RB"], ["GK"]],
 };
 
-const storageKey = "soccer-coach-app-v8";
+const storageKey = "coachbench-permanent-save";
 const legacyStorageKeys = [
+  "soccer-coach-app-v8",
   "soccer-coach-app-v7",
   "soccer-coach-app-v6",
   "soccer-coach-app-v5",
@@ -58,6 +59,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [goalPanelOpen, setGoalPanelOpen] = useState(false);
   const [fieldFlipped, setFieldFlipped] = useState(false);
+  const [backupText, setBackupText] = useState("");
   const [halfLengthMinutes, setHalfLengthMinutes] = useState(30);
   const [currentHalf, setCurrentHalf] = useState(1);
   const [halfSecondsLeft, setHalfSecondsLeft] = useState(30 * 60);
@@ -290,7 +292,51 @@ export default function App() {
     );
   }
 
+  function exportBackup() {
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      format,
+      players,
+      teamGoals,
+      oppGoals,
+      games,
+      fieldFlipped,
+      halfLengthMinutes,
+      currentHalf,
+      halfSecondsLeft,
+    };
+
+    const text = JSON.stringify(backup, null, 2);
+    setBackupText(text);
+
+    navigator.clipboard?.writeText(text).catch(() => {
+      // Clipboard may be blocked on some phones. The text box still shows the backup.
+    });
+  }
+
+  function importBackup() {
+    if (!backupText.trim()) return;
+
+    try {
+      const data = JSON.parse(backupText);
+      setFormat(data.format || "9v9");
+      setPlayers(data.players || []);
+      setTeamGoals(data.teamGoals || 0);
+      setOppGoals(data.oppGoals || 0);
+      setGames(data.games || []);
+      setFieldFlipped(data.fieldFlipped || false);
+      setHalfLengthMinutes(data.halfLengthMinutes || 30);
+      setCurrentHalf(data.currentHalf || 1);
+      setHalfSecondsLeft(data.halfSecondsLeft ?? (data.halfLengthMinutes || 30) * 60);
+    } catch {
+      alert("Backup could not be imported. Make sure the full backup text was pasted.");
+    }
+  }
+
   function clearEverything() {
+    const confirmClear = window.confirm("This will permanently clear the roster, games, and stats on this device. Export a backup first if needed. Continue?");
+    if (!confirmClear) return;
+
     localStorage.removeItem(storageKey);
     setPlayers([]);
     setGames([]);
@@ -460,6 +506,22 @@ export default function App() {
             </div>
           )}
 
+          {screen === "backup" && (
+            <div className="section-stack">
+              <div className="screen-heading"><h2>Backup / Restore</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
+              <div className="card">
+                <h3>Export Backup</h3>
+                <p className="muted">Use this after each game. It copies your roster, saved games, and season stats into a backup text file.</p>
+                <button onClick={exportBackup} className="green-button full-width">Create Backup Copy</button>
+              </div>
+              <div className="card">
+                <h3>Backup Text</h3>
+                <textarea value={backupText} onChange={(e) => setBackupText(e.target.value)} className="backup-box" placeholder="Your backup text will appear here. You can also paste backup text here to restore." />
+                <button onClick={importBackup} className="blue-button full-width">Import Backup</button>
+              </div>
+            </div>
+          )}
+
           {screen === "stats" && (
             <div className="section-stack">
               <div className="screen-heading"><h2>Stats</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
@@ -486,6 +548,7 @@ export default function App() {
               <button onClick={() => goTo("roster")} className="menu-button">Roster</button>
               <button onClick={() => goTo("bench")} className="menu-button">Bench / Substitutions {urgentBench > 0 ? `(${urgentBench})` : ""}</button>
               <button onClick={() => goTo("stats")} className="menu-button">Stats / Saved Games</button>
+              <button onClick={() => goTo("backup")} className="menu-button">Backup / Restore</button>
               <div className="menu-divider" />
               <button onClick={() => { resetCurrentGame(); setMenuOpen(false); }} className="menu-button">Reset Current Game</button>
               <button onClick={() => { clearEverything(); setMenuOpen(false); }} className="danger-menu-button">Clear All Data</button>
