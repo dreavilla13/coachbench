@@ -66,21 +66,32 @@ export default function App() {
   const positions = baseFormations[format].flat();
 
   useEffect(() => {
-    let saved = localStorage.getItem(storageKey);
+    const allKeysToCheck = [storageKey, ...legacyStorageKeys];
+    let bestData = null;
+    let bestScore = -1;
 
-    if (!saved) {
-      for (const oldKey of legacyStorageKeys) {
-        const oldSaved = localStorage.getItem(oldKey);
-        if (oldSaved) {
-          saved = oldSaved;
-          localStorage.setItem(storageKey, oldSaved);
-          break;
+    for (const key of allKeysToCheck) {
+      const savedValue = localStorage.getItem(key);
+      if (!savedValue) continue;
+
+      try {
+        const parsed = JSON.parse(savedValue);
+        const savedGamesCount = parsed.games?.length || 0;
+        const savedPlayersCount = parsed.players?.length || 0;
+        const score = savedGamesCount * 1000 + savedPlayersCount;
+
+        if (score > bestScore) {
+          bestData = parsed;
+          bestScore = score;
         }
+      } catch {
+        // Ignore broken saved data
       }
     }
 
-    if (saved) {
-      const data = JSON.parse(saved);
+    if (bestData) {
+      localStorage.setItem(storageKey, JSON.stringify(bestData));
+      const data = bestData;
       setFormat(data.format || "9v9");
       setPlayers(data.players || []);
       setTeamGoals(data.teamGoals || 0);
