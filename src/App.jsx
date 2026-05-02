@@ -133,7 +133,10 @@ export default function App() {
   const bench = useMemo(() => players.filter((p) => !p.onField), [players]);
   const urgentBench = bench.filter((p) => p.benchTime > 300).length;
   const longestShift = useMemo(
-    () => [...onField].sort((a, b) => (b.currentFieldTime || 0) - (a.currentFieldTime || 0))[0],
+    () =>
+      [...onField]
+        .filter((player) => player.position !== "GK")
+        .sort((a, b) => (b.currentFieldTime || 0) - (a.currentFieldTime || 0))[0],
     [onField]
   );
 
