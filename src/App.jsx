@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 const baseFormations = {
-  "7v7": [["ST"], ["LM", "CM", "RM"], ["LB", "CB", "RB"], ["GK"]],
+  "7v7": [["ST"], ["RM", "LM"], ["RB", "CB", "LB"], ["GK"]],
   "9v9": [["ST1", "ST2"], ["LM", "CM", "RM"], ["LB", "CB", "RB"], ["GK"]],
   "11v11": [["ST"], ["LW", "CAM", "RW"], ["CDM", "CM"], ["LB", "LCB", "RCB", "RB"], ["GK"]],
 };
@@ -26,11 +26,28 @@ function formatTime(seconds) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+function normalizePlayer(player) {
+  return {
+    ...player,
+    isGuest: Boolean(player.isGuest),
+    isAbsent: Boolean(player.isAbsent),
+    currentFieldTime: player.currentFieldTime || 0,
+    benchTime: player.benchTime || 0,
+    fieldTime: player.fieldTime || 0,
+    goals: player.goals || 0,
+    assists: player.assists || 0,
+    seasonGoals: player.seasonGoals || 0,
+    seasonAssists: player.seasonAssists || 0,
+    seasonMinutes: player.seasonMinutes || 0,
+  };
+}
+
 function makePlayer(name, isGuest = false) {
   return {
     id: newId(),
     name,
     isGuest,
+    isAbsent: false,
     onField: false,
     position: "Bench",
     fieldTime: 0,
@@ -95,7 +112,7 @@ export default function App() {
       localStorage.setItem(storageKey, JSON.stringify(bestData));
       const data = bestData;
       setFormat(data.format || "9v9");
-      setPlayers(data.players || []);
+      setPlayers((data.players || []).map(normalizePlayer));
       setTeamGoals(data.teamGoals || 0);
       setOppGoals(data.oppGoals || 0);
       setGames(data.games || []);
@@ -119,9 +136,9 @@ export default function App() {
       setPlayers((currentPlayers) =>
         currentPlayers.map((player) => ({
           ...player,
-          fieldTime: player.onField ? player.fieldTime + 1 : player.fieldTime,
-          currentFieldTime: player.onField ? (player.currentFieldTime || 0) + 1 : 0,
-          benchTime: player.onField ? 0 : player.benchTime + 1,
+          fieldTime: player.onField && !player.isAbsent ? player.fieldTime + 1 : player.fieldTime,
+          currentFieldTime: player.onField && !player.isAbsent ? (player.currentFieldTime || 0) + 1 : 0,
+          benchTime: !player.onField && !player.isAbsent ? player.benchTime + 1 : 0,
         }))
       );
       setHalfSecondsLeft((current) => Math.max(0, current - 1));
@@ -129,8 +146,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [running]);
 
-  const onField = useMemo(() => players.filter((p) => p.onField), [players]);
-  const bench = useMemo(() => players.filter((p) => !p.onField), [players]);
+  const availablePlayers = useMemo(() => players.filter((p) => !p.isAbsent), [players]);
+  const onField = useMemo(() => availablePlayers.filter((p) => p.onField), [availablePlayers]);
+  const bench = useMemo(() => availablePlayers.filter((p) => !p.onField), [availablePlayers]);
+  const absentPlayers = useMemo(() => players.filter((p) => p.isAbsent), [players]);
   const urgentBench = bench.filter((p) => p.benchTime > 300).length;
   const longestShift = useMemo(
     () =>
@@ -156,11 +175,28 @@ export default function App() {
     setPlayers(players.filter((p) => p.id !== id));
   }
 
+  function toggleAbsent(playerId) {
+    setPlayers((currentPlayers) =>
+      currentPlayers.map((player) => {
+        if (player.id !== playerId) return player;
+        const willBeAbsent = !player.isAbsent;
+        return {
+          ...player,
+          isAbsent: willBeAbsent,
+          onField: willBeAbsent ? false : player.onField,
+          position: willBeAbsent ? "Bench" : player.position,
+          benchTime: 0,
+          currentFieldTime: willBeAbsent ? 0 : player.currentFieldTime,
+        };
+      })
+    );
+  }
+
   function assignPlayer(playerId, position) {
     if (!playerId) return;
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) => {
-        if (player.id === playerId) return { ...player, onField: true, position, benchTime: 0, currentFieldTime: 0 };
+        if (player.id === playerId) return { ...player, isAbsent: false, onField: true, position, benchTime: 0, currentFieldTime: 0 };
         if (player.position === position) return { ...player, onField: false, position: "Bench", benchTime: 0, currentFieldTime: 0 };
         return player;
       })
@@ -180,7 +216,7 @@ export default function App() {
     if (!fieldPlayer) return;
     setPlayers((currentPlayers) =>
       currentPlayers.map((player) => {
-        if (player.id === benchPlayerId) return { ...player, onField: true, position: fieldPlayer.position, benchTime: 0, currentFieldTime: 0 };
+        if (player.id === benchPlayerId) return { ...player, isAbsent: false, onField: true, position: fieldPlayer.position, benchTime: 0, currentFieldTime: 0 };
         if (player.id === fieldPlayerId) return { ...player, onField: false, position: "Bench", benchTime: 0, currentFieldTime: 0 };
         return player;
       })
@@ -228,6 +264,7 @@ export default function App() {
         id: p.id,
         name: p.name,
         isGuest: p.isGuest,
+        isAbsent: p.isAbsent,
         goals: p.goals,
         assists: p.assists,
         minutes: Math.round(p.fieldTime / 60),
@@ -240,6 +277,7 @@ export default function App() {
         .filter((player) => !player.isGuest)
         .map((player) => ({
           ...player,
+          isAbsent: false,
           seasonGoals: player.seasonGoals + player.goals,
           seasonAssists: player.seasonAssists + player.assists,
           seasonMinutes: player.seasonMinutes + Math.round(player.fieldTime / 60),
@@ -264,7 +302,7 @@ export default function App() {
     setPlayers((currentPlayers) =>
       currentPlayers
         .filter((player) => !player.isGuest)
-        .map((player) => ({ ...player, goals: 0, assists: 0, fieldTime: 0, currentFieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
+        .map((player) => ({ ...player, isAbsent: false, goals: 0, assists: 0, fieldTime: 0, currentFieldTime: 0, benchTime: 0, onField: false, position: "Bench" }))
     );
     setTeamGoals(0);
     setOppGoals(0);
@@ -311,19 +349,15 @@ export default function App() {
 
     const text = JSON.stringify(backup, null, 2);
     setBackupText(text);
-
-    navigator.clipboard?.writeText(text).catch(() => {
-      // Clipboard may be blocked on some phones. The text box still shows the backup.
-    });
+    navigator.clipboard?.writeText(text).catch(() => {});
   }
 
   function importBackup() {
     if (!backupText.trim()) return;
-
     try {
       const data = JSON.parse(backupText);
       setFormat(data.format || "9v9");
-      setPlayers(data.players || []);
+      setPlayers((data.players || []).map(normalizePlayer));
       setTeamGoals(data.teamGoals || 0);
       setOppGoals(data.oppGoals || 0);
       setGames(data.games || []);
@@ -339,7 +373,6 @@ export default function App() {
   function clearEverything() {
     const confirmClear = window.confirm("This will permanently clear the roster, games, and stats on this device. Export a backup first if needed. Continue?");
     if (!confirmClear) return;
-
     localStorage.removeItem(storageKey);
     setPlayers([]);
     setGames([]);
@@ -396,11 +429,11 @@ export default function App() {
               <div className="goal-select-row">
                 <select value={scorerId} onChange={(e) => setScorerId(e.target.value)}>
                   <option value="">Scorer</option>
-                  {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
+                  {availablePlayers.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
                 </select>
                 <select value={assistId} onChange={(e) => setAssistId(e.target.value)}>
                   <option value="none">No Assist</option>
-                  {players.filter((player) => player.id !== scorerId).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
+                  {availablePlayers.filter((player) => player.id !== scorerId).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
                 </select>
               </div>
               <button onClick={recordOurGoal} className="green-button full-width">Record Goal</button>
@@ -426,6 +459,10 @@ export default function App() {
                 <span className="count-pill">{onField.length}/{positions.length}</span>
               </div>
 
+              {absentPlayers.length > 0 && (
+                <div className="absent-note">Absent: {absentPlayers.map((player) => player.name).join(", ")}</div>
+              )}
+
               {longestShift && (
                 <div className="sub-reminder">
                   Longest shift: <strong>{longestShift.name}</strong> • {formatTime(longestShift.currentFieldTime || 0)}
@@ -438,7 +475,7 @@ export default function App() {
                   {formationRows.map((row, rowIndex) => (
                     <div key={rowIndex} className="formation-row" style={{ gridTemplateColumns: `repeat(${row.length}, 1fr)` }}>
                       {row.map((position) => {
-                        const assigned = players.find((p) => p.position === position && p.onField);
+                        const assigned = players.find((p) => p.position === position && p.onField && !p.isAbsent);
                         return (
                           <div key={position} className="position-card">
                             <div className="position-top">
@@ -449,7 +486,7 @@ export default function App() {
                             </div>
                             <select value={assigned?.id || ""} onChange={(e) => assignPlayer(e.target.value, position)} className="player-select">
                               <option value="">Player</option>
-                              {players.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
+                              {availablePlayers.map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}
                             </select>
                           </div>
                         );
@@ -479,12 +516,19 @@ export default function App() {
                 </div>
               </div>
               {players.map((player) => (
-                <div key={player.id} className="list-row">
+                <div key={player.id} className={player.isAbsent ? "list-row absent-player" : "list-row"}>
                   <div>
                     <div className="row-title">{player.name}</div>
-                    <div className="row-subtitle">{player.isGuest ? "Guest player • " : ""}{player.onField ? player.position : "Bench"}</div>
+                    <div className="row-subtitle">{player.isAbsent ? "Absent" : `${player.isGuest ? "Guest player • " : ""}${player.onField ? player.position : "Bench"}`}</div>
                   </div>
-                  <button onClick={() => deletePlayer(player.id)} className="delete-button">Delete</button>
+                  <div className="roster-actions">
+                    {!player.isGuest && (
+                      <button onClick={() => toggleAbsent(player.id)} className={player.isAbsent ? "present-button" : "absent-button"}>
+                        {player.isAbsent ? "Present" : "Absent"}
+                      </button>
+                    )}
+                    <button onClick={() => deletePlayer(player.id)} className="delete-button">Delete</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -493,11 +537,12 @@ export default function App() {
           {screen === "bench" && (
             <div className="section-stack">
               <div className="screen-heading"><h2>Bench</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
+              {absentPlayers.length > 0 && <div className="absent-note">Absent: {absentPlayers.map((player) => player.name).join(", ")}</div>}
               {bench.length === 0 && <p className="card muted">No players are currently on the bench.</p>}
               {bench.map((benchPlayer) => (
                 <div key={benchPlayer.id} className={benchPlayer.benchTime > 300 ? "bench-card urgent" : "bench-card"}>
                   <div className="bench-card-top">
-                    <div><div className="row-title">{benchPlayer.name}</div><div className="row-subtitle">Bench {formatTime(benchPlayer.benchTime)}</div></div>
+                    <div><div className="row-title">{benchPlayer.name}</div><div className="row-subtitle">{benchPlayer.isGuest ? "Guest player • " : ""}Bench {formatTime(benchPlayer.benchTime)}</div></div>
                     {benchPlayer.benchTime > 300 && <span className="sub-badge">SUB?</span>}
                   </div>
                   <select defaultValue="" onChange={(e) => { if (e.target.value) subPlayers(benchPlayer.id, e.target.value); e.target.value = ""; }}>
@@ -528,7 +573,7 @@ export default function App() {
           {screen === "stats" && (
             <div className="section-stack">
               <div className="screen-heading"><h2>Stats</h2><button onClick={() => setScreen("formation")} className="dark-button">Back</button></div>
-              <div className="card"><h3>Current Game</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.goals}G / {p.assists}A / Total {formatTime(p.fieldTime)} / Shift {formatTime(p.currentFieldTime || 0)}</span></div>)}</div>
+              <div className="card"><h3>Current Game</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.isAbsent ? "Absent" : `${p.goals}G / ${p.assists}A / Total ${formatTime(p.fieldTime)} / Shift ${formatTime(p.currentFieldTime || 0)}`}</span></div>)}</div>
               <div className="card"><h3>Season Totals</h3>{players.map((p) => <div key={p.id} className="stat-row"><span>{p.name}</span><span>{p.isGuest ? "Guest" : `${p.seasonGoals}G / ${p.seasonAssists}A / ${p.seasonMinutes}m`}</span></div>)}</div>
               <div className="card"><h3>Saved Games</h3>{games.length === 0 && <p className="muted">No saved games yet.</p>}{games.map((game) => (
                 <div key={game.id} className="saved-game">
